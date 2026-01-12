@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All-in-One Event Manager (Secure Admin)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .modal-body { max-height: 75vh; }
+        .transition-all { transition: all 0.3s ease-in-out; }
+        .color-swatch { width: 2rem; height: 2rem; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+        .color-swatch.selected { border-color: #4f46e5; transform: scale(1.1); }
+        /* Loading Overlay */
+        #loading-overlay { display: flex; }
+        #loading-overlay.hidden { display: none; }
+    </style>
+    
+    <script>
+        // 1. CONFIGURATION (Moved to top so it loads first)
+        const SUPABASE_URL = 'https://iqalrzfujxultufditwv.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlxYWxyemZ1anh1bHR1ZmRpdHd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgyMzQyMzksImV4cCI6MjA4MzU5NDIzOX0.y8CvZxl8iiYQ9LN90g5QQhNfpet7p_D9oBX7psIWmHI';
+        
+        // 2. Initialize Client Immediately
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // 3. SECURITY GATE
+        async function checkSession() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                // If not logged in, redirect to login page
+                window.location.href = '/'; 
+            }
+        }
+        checkSession();
+    </script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="loading-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-50 justify-center items-center text-white hidden">
+        <div class="text-2xl font-semibold animate-pulse">Syncing with Database...</div>
+    </div>
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-5xl">
+        <header class="mb-8 flex flex-wrap justify-between items-center gap-4">
+            <div>
+                <h1 class="text-4xl font-bold text-gray-900">Event Manager <span class="text-sm font-normal text-indigo-600 bg-indigo-100 px-2 py-1 rounded align-middle">Secure</span></h1>
+                <p class="text-gray-600 mt-2">Manage your events via Supabase.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button id="import-btn" class="bg-gray-500 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-gray-600 transition-all">Import</button>
+                <input type="file" id="import-file-input" class="hidden" accept=".json">
+                <button id="export-btn" class="bg-blue-500 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-blue-600 transition-all">Export</button>
+                
+                <button id="generate-discord-btn" class="bg-gray-800 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-black transition-all">Discord Weekly</button>
+                <button id="generate-discord-game-btn" class="bg-gray-700 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-gray-900 transition-all">Discord By Game</button>
+                <button id="generate-discord-game-preview-btn" class="bg-gray-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-gray-700 transition-all">Preview Last Week</button>
+                <button id="generate-daily-btn" class="bg-cyan-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-cyan-700 transition-all">Daily List</button>
+                <button id="generate-weekly-btn" class="bg-purple-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-purple-700 transition-all">Weekly List</button>
+                <button id="generate-weekly-images-btn" class="bg-teal-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-teal-700 transition-all">Weekly + Images</button>
+                <button id="generate-viewer-btn" class="bg-green-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-green-700 transition-all">Calendar View</button>
+                
+                <button id="create-event-btn" class="bg-indigo-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-indigo-700 transition-all">Create New Event</button>
+                
+                <button id="profile-btn" class="bg-gray-800 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-black transition-all border border-gray-600">My Profile</button>
+                <button id="logout-btn" class="bg-red-600 text-white font-semibold py-2 px-5 rounded-lg shadow-sm hover:bg-red-700 transition-all">Logout</button>
+            </div>
+        </header>
+
+        <div class="mb-6 bg-white p-4 rounded-lg shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+                <label for="search-input" class="block text-sm font-medium text-gray-700">Search Events:</label>
+                <input type="text" id="search-input" placeholder="Search title or keyword..." class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+             <div>
+                <label for="status-filter" class="block text-sm font-medium text-gray-700">View Mode:</label>
+                <select id="status-filter" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="upcoming" selected>Upcoming Schedule</option>
+                    <option value="all">All Events (Database)</option>
+                    <option value="past">Past Events Only</option>
+                </select>
+            </div>
+            <div>
+                <label for="location-filter" class="block text-sm font-medium text-gray-700">Filter by Location:</label>
+                <select id="location-filter" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></select>
+            </div>
+            <div>
+                <label for="game-filter" class="block text-sm font-medium text-gray-700">Filter by Game:</label>
+                <select id="game-filter" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></select>
+            </div>
+        </div>
+
+        <main id="event-list-container" class="space-y-12">
+            <div class="text-center py-10">Loading events from database...</div>
+        </main>
+    </div>
+
+    <div id="edit-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-40">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-3xl">
+            <div class="p-6 border-b border-gray-200">
+                <h3 id="modal-title" class="text-2xl font-semibold">Create a New Event</h3>
+            </div>
+            <div class="p-6 overflow-y-auto modal-body">
+                <form id="edit-event-form" class="space-y-6">
+                    <input type="hidden" id="edit-event-id">
+                    <div>
+                        <label for="edit-event-game" class="block text-sm font-medium text-gray-700">Game</label>
+                        <input type="text" id="edit-event-game" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <div>
+                        <label for="edit-event-title" class="block text-sm font-medium text-gray-700">Event Title</label>
+                        <input type="text" id="edit-event-title" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label for="edit-event-date" class="block text-sm font-medium text-gray-700">Start Date</label>
+                            <input type="date" id="edit-event-date" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                        <div>
+                            <label for="edit-event-time" class="block text-sm font-medium text-gray-700">Time</label>
+                            <input type="time" id="edit-event-time" required class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="edit-event-location" class="block text-sm font-medium text-gray-700">Location</label>
+                        <select id="edit-event-location" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                            <option value="york">York, PA</option>
+                            <option value="hagerstown">Hagerstown, MD</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="edit-event-repeat" class="block text-sm font-medium text-gray-700">Repeat</label>
+                        <select id="edit-event-repeat" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                            <option value="none">None</option>
+                            <option value="weekly">Weekly (max 8 weeks)</option>
+                            <option value="monthly">Monthly (max 2 months)</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label for="edit-event-entry" class="block text-sm font-medium text-gray-700">Entry</label>
+                            <input type="text" id="edit-event-entry" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                        <div>
+                            <label for="edit-event-format" class="block text-sm font-medium text-gray-700">Format</label>
+                            <input type="text" id="edit-event-format" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                    </div>
+
+                    <div id="skip-dates-section" class="hidden">
+                        <h4 class="block text-sm font-medium text-gray-700">Skip Occurrences</h4>
+                        <p class="text-xs text-gray-500 mb-2">Click a date to skip its occurrence. Click again to un-skip. (Note: You must save the event to apply skips).</p>
+                        <div id="skip-dates-list" class="mt-2 p-3 border border-gray-200 rounded-md bg-gray-50 h-32 overflow-y-auto space-y-2"></div>
+                    </div>
+
+                    <div>
+                        <label for="edit-event-description" class="block text-sm font-medium text-gray-700">Description</label>
+                        <textarea id="edit-event-description" rows="4" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm"></textarea>
+                    </div>
+                    <div>
+                        <label for="edit-event-prizing" class="block text-sm font-medium text-gray-700">Prizing</label>
+                        <textarea id="edit-event-prizing" rows="2" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm"></textarea>
+                    </div>
+                    <div>
+                        <label for="edit-event-image-url" class="block text-sm font-medium text-gray-700">Image URL</label>
+                        <input type="url" id="edit-event-image-url" placeholder="https://example.com/image.png" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                        <img id="image-preview" src="" alt="Image preview" class="mt-2 rounded-md max-h-40 hidden">
+                    </div>
+                    <div>
+                        <label for="edit-event-custom-url" class="block text-sm font-medium text-gray-700">Ticket URL (Optional)</label>
+                        <input type="url" id="edit-event-custom-url" placeholder="https://your-ticketing-site.com/event" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Event Color</label>
+                        <div id="color-selector" class="mt-2 flex flex-wrap gap-2"></div>
+                        <div class="mt-4 flex items-center gap-3">
+                            <label for="hex-color-input" class="text-sm font-medium text-gray-700">Or enter a hex code:</label>
+                            <input type="text" id="hex-color-input" placeholder="#RRGGBB" class="block w-32 px-2 py-1 bg-white border border-gray-300 rounded-md shadow-sm text-sm">
+                            <div id="hex-color-preview" class="w-8 h-8 rounded-full border border-gray-300"></div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="p-6 bg-gray-50 border-t border-gray-200 flex justify-end space-x-4">
+                <button id="modal-cancel-button" type="button" class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button id="modal-save-button" type="submit" form="edit-event-form" class="bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm hover:bg-indigo-700">Save Event</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-notification" class="fixed bottom-5 right-5 bg-gray-800 text-white py-3 px-5 rounded-lg shadow-lg opacity-0 transition-opacity duration-500 pointer-events-none z-50">
+        <p id="toast-message"></p>
+    </div>
+
+    <div id="profile-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="text-2xl font-semibold">My Profile</h3>
+                <button id="profile-modal-close" class="text-gray-500 hover:text-gray-700 font-bold text-xl">&times;</button>
+            </div>
+            <div class="p-6">
+                <p class="text-sm text-gray-600 mb-4">Logged in as: <span id="current-user-email" class="font-bold">loading...</span></p>
+                <hr class="my-4">
+                <h4 class="font-bold text-lg mb-2">Change Password</h4>
+                <form id="change-password-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">New Password</label>
+                        <input type="password" id="new-password" required minlength="6" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Confirm New Password</label>
+                        <input type="password" id="confirm-password" required minlength="6" class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm">
+                    </div>
+                    <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded hover:bg-indigo-700 transition-colors">
+                        Update Password
+                    </button>
+                </form>
+                <p id="password-msg" class="text-center text-sm mt-3 hidden"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener('load', () => {
+            const app = {
+                // DOM Elements
+                eventListContainer: document.getElementById('event-list-container'),
+                modal: document.getElementById('edit-modal'),
+                editForm: document.getElementById('edit-event-form'),
+                createEventBtn: document.getElementById('create-event-btn'),
+                generateViewerBtn: document.getElementById('generate-viewer-btn'),
+                generateWeeklyBtn: document.getElementById('generate-weekly-btn'),
+                generateWeeklyImagesBtn: document.getElementById('generate-weekly-images-btn'),
+                generateDailyBtn: document.getElementById('generate-daily-btn'),
+                generateDiscordBtn: document.getElementById('generate-discord-btn'),
+                generateDiscordGameBtn: document.getElementById('generate-discord-game-btn'),
+                generateDiscordGamePreviewBtn: document.getElementById('generate-discord-game-preview-btn'),
+                importBtn: document.getElementById('import-btn'),
+                importFileInput: document.getElementById('import-file-input'),
+                exportBtn: document.getElementById('export-btn'),
+                
+                // Filters
+                gameFilter: document.getElementById('game-filter'),
+                locationFilter: document.getElementById('location-filter'),
+                statusFilter: document.getElementById('status-filter'),
+                searchInput: document.getElementById('search-input'),
+
+                loadingOverlay: document.getElementById('loading-overlay'),
+                
+                // App State
+                events: [],
+                colors: [
+                    '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', 
+                    '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1',
+                    '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#64748b', 
+                    '#9ca3af', '#71717a'
+                ],
+                locations: {
+                    york: {
+                        text: "York, PA",
+                        fullText: "1st Capital Gaming, Eastern Blvd, York, PA",
+                        url: "https://www.google.com/maps/place/1st+Capital+Gaming/@39.9721164,-76.6784597,17z/data=!3m1!4b1!4m6!3m5!1s0x89c88fb7eaf9ec15:0xf16753aa612158ca!8m2!3d39.9721164!4d-76.6758794!16s%2Fg%2F11svvg3q00?entry=ttu&g_ep=EgoyMDI1MDczMC4wIKXMDSoASAFQAw%3D%3D"
+                    },
+                    hagerstown: {
+                        text: "Hagerstown, MD",
+                        fullText: "1st Capital Gaming, Premium Outlets Blvd, Hagerstown, MD",
+                        url: "https://www.google.com/maps/place/1st+Capital+Gaming/@39.6079973,-77.7363654,17z/data=!3m1!4b1!4m6!3m5!1s0x89c9ed6818c40ba5:0xfd829463bde2316b!8m2!3d39.6079973!4d-77.7337851!16s%2Fg%2F11wtvypyks?entry=ttu&g_ep=EgoyMDI1MDczMC4wIKXMDSoASAFQAw%3D%3D"
+                    }
+                },
+                
+                init() {
+                    this.loadEvents();
+                    this.attachEventListeners();
+                },
+
+                attachEventListeners() {
+                    // Standard Event Listeners
+                    this.createEventBtn.addEventListener('click', () => this.openEditModal(null, 'create'));
+                    this.generateViewerBtn.addEventListener('click', () => this.generateViewerFile());
+                    this.generateDailyBtn.addEventListener('click', () => this.generateDailyFile());
+                    this.generateWeeklyBtn.addEventListener('click', () => this.generateWeeklyFile());
+                    this.generateWeeklyImagesBtn.addEventListener('click', () => this.generateWeeklyFileWithImages());
+                    this.generateDiscordBtn.addEventListener('click', () => this.generateDiscordFile());
+                    this.generateDiscordGameBtn.addEventListener('click', () => this.generateDiscordGameFile());
+                    this.generateDiscordGamePreviewBtn.addEventListener('click', () => this.generateDiscordGamePreviewFile());
+                    this.modal.querySelector('#modal-cancel-button').addEventListener('click', () => this.closeEditModal());
+                    this.editForm.addEventListener('submit', (e) => {
+                        e.preventDefault();
+                        this.saveEvent();
+                    });
+                    this.editForm.querySelector('#edit-event-image-url').addEventListener('input', (e) => {
+                        const preview = document.getElementById('image-preview');
+                        preview.src = e.target.value;
+                        preview.classList.toggle('hidden', !e.target.value);
+                    });
+                    this.editForm.querySelector('#edit-event-repeat').addEventListener('change', (e) => {
+                        this.toggleSkipDatesSection(e.target.value !== 'none');
+                    });
+                    this.editForm.querySelector('#hex-color-input').addEventListener('input', (e) => this.handleHexInput(e.target.value));
+                    this.exportBtn.addEventListener('click', () => this.exportData());
+                    this.importBtn.addEventListener('click', () => this.importFileInput.click());
+                    this.importFileInput.addEventListener('change', (e) => this.importData(e));
+                    
+                    // Filter Listeners
+                    this.gameFilter.addEventListener('change', () => this.renderEventList());
+                    this.locationFilter.addEventListener('change', () => this.renderEventList());
+                    this.statusFilter.addEventListener('change', () => this.renderEventList());
+                    this.searchInput.addEventListener('input', () => this.renderEventList());
+
+                    // === PROFILE & AUTH LISTENERS ===
+                    
+                    // 1. Open Profile
+                    const profileBtn = document.getElementById('profile-btn');
+                    if (profileBtn) {
+                        profileBtn.addEventListener('click', async () => {
+                            const { data: { user } } = await supabaseClient.auth.getUser();
+                            if (user) {
+                                document.getElementById('current-user-email').textContent = user.email;
+                                document.getElementById('profile-modal').classList.remove('hidden');
+                            }
+                        });
+                    }
+
+                    // 2. Close Profile
+                    const profileClose = document.getElementById('profile-modal-close');
+                    if (profileClose) {
+                        profileClose.addEventListener('click', () => {
+                            document.getElementById('profile-modal').classList.add('hidden');
+                        });
+                    }
+
+                    // 3. Logout
+                    const logoutBtn = document.getElementById('logout-btn');
+                    if (logoutBtn) {
+                        logoutBtn.addEventListener('click', async () => {
+                            await supabaseClient.auth.signOut();
+                            window.location.href = '/'; 
+                        });
+                    }
+
+                    // 4. Change Password
+                    const passForm = document.getElementById('change-password-form');
+                    if (passForm) {
+                        passForm.addEventListener('submit', async (e) => {
+                            e.preventDefault();
+                            const newPass = document.getElementById('new-password').value;
+                            const confirmPass = document.getElementById('confirm-password').value;
+                            const msgEl = document.getElementById('password-msg');
+
+                            if (newPass !== confirmPass) {
+                                msgEl.textContent = "Passwords do not match.";
+                                msgEl.className = "text-center text-sm mt-3 text-red-600 block";
+                                return;
+                            }
+
+                            msgEl.textContent = "Updating...";
+                            msgEl.className = "text-center text-sm mt-3 text-gray-600 block";
+
+                            const { error } = await supabaseClient.auth.updateUser({ password: newPass });
+
+                            if (error) {
+                                msgEl.textContent = "Error: " + error.message;
+                                msgEl.className = "text-center text-sm mt-3 text-red-600 block";
+                            } else {
+                                msgEl.textContent = "Password updated successfully!";
+                                msgEl.className = "text-center text-sm mt-3 text-green-600 block";
+                                document.getElementById('change-password-form').reset();
+                            }
+                        });
+                    }
+                },
+
+                setLoading(isLoading) {
+                    if (isLoading) this.loadingOverlay.classList.remove('hidden');
+                    else this.loadingOverlay.classList.add('hidden');
+                },
+
+                // === SUPABASE CRUD OPERATIONS ===
+
+                async loadEvents() {
+                    this.setLoading(true);
+                    try {
+                        const { data, error } = await supabaseClient
+                            .from('events')
+                            .select('*')
+                            .order('start_date', { ascending: true });
+
+                        if (error) throw error;
+
+                        this.events = data.map(dbEvent => ({
+                            id: dbEvent.id,
+                            game: dbEvent.game,
+                            title: dbEvent.title,
+                            startDate: dbEvent.start_date,
+                            time: dbEvent.time,
+                            location: dbEvent.location,
+                            repeat: dbEvent.repeat_pattern,
+                            entry: dbEvent.entry,
+                            format: dbEvent.format,
+                            description: dbEvent.description,
+                            prizing: dbEvent.prizing,
+                            imageUrl: dbEvent.image_url,
+                            customUrl: dbEvent.custom_url,
+                            color: dbEvent.color,
+                            skippedDates: dbEvent.skipped_dates || []
+                        }));
+
+                        this.renderLocationFilter();
+                        this.renderGameFilter();
+                        this.renderEventList();
+
+                    } catch (error) {
+                        console.error('Error loading events:', error);
+                        this.showToast('Error loading events from database.');
+                    } finally {
+                        this.setLoading(false);
+                    }
+                },
+
+                async saveEvent() {
+                    this.setLoading(true);
+                    
+                    const eventId = this.editForm.querySelector('#edit-event-id').value;
+                    const title = this.editForm.querySelector('#edit-event-title').value.trim();
+                    if (!title) {
+                        alert('Please enter an event title.');
+                        this.setLoading(false);
+                        return;
+                    }
+
+                    const hexInput = this.editForm.querySelector('#hex-color-input');
+                    const selectedSwatch = this.editForm.querySelector('#color-selector .selected');
+                    let finalColor = this.colors[4];
+                    const hexRegex = /^#[0-9A-F]{6}$/i;
+                    if (hexRegex.test(hexInput.value)) {
+                        finalColor = hexInput.value;
+                    } else if (selectedSwatch) {
+                        finalColor = selectedSwatch.dataset.color;
+                    }
+                    
+                    let skippedDates = [];
+                    if (eventId) {
+                        const existingEvent = this.events.find(e => e.id == eventId);
+                        if (existingEvent) skippedDates = existingEvent.skippedDates || [];
+                    }
+
+                    const dbObject = {
+                        game: this.editForm.querySelector('#edit-event-game').value.trim(),
+                        title: title,
+                        start_date: this.editForm.querySelector('#edit-event-date').value,
+                        time: this.editForm.querySelector('#edit-event-time').value,
+                        location: this.editForm.querySelector('#edit-event-location').value,
+                        repeat_pattern: this.editForm.querySelector('#edit-event-repeat').value,
+                        entry: this.editForm.querySelector('#edit-event-entry').value.trim(),
+                        format: this.editForm.querySelector('#edit-event-format').value.trim(),
+                        description: this.editForm.querySelector('#edit-event-description').value.trim(),
+                        prizing: this.editForm.querySelector('#edit-event-prizing').value.trim(),
+                        image_url: this.editForm.querySelector('#edit-event-image-url').value.trim(),
+                        custom_url: this.editForm.querySelector('#edit-event-custom-url').value.trim(),
+                        color: finalColor,
+                        skipped_dates: skippedDates
+                    };
+                    
+                    if (dbObject.repeat_pattern === 'none') {
+                        dbObject.skipped_dates = [];
+                    }
+
+                    try {
+                        let error;
+                        if (eventId) {
+                             const { error: updateError } = await supabaseClient
+                                .from('events')
+                                .update(dbObject)
+                                .eq('id', eventId);
+                            error = updateError;
+                        } else {
+                            const { error: insertError } = await supabaseClient
+                                .from('events')
+                                .insert([dbObject]);
+                            error = insertError;
+                        }
+
+                        if (error) throw error;
+                        
+                        this.showToast('Event saved to database!');
+                        this.closeEditModal();
+                        this.loadEvents(); 
+
+                    } catch (err) {
+                        console.error('Error saving:', err);
+                        alert('Failed to save event. Check console for details.');
+                        this.setLoading(false);
+                    }
+                },
+
+                async deleteEvent(eventId) {
+                    const eventTitle = this.events.find(e => e.id == eventId)?.title || 'this event';
+                    if (confirm(`Are you sure you want to permanently delete "${eventTitle}"?`)) {
+                        this.setLoading(true);
+                        try {
+                            const { error } = await supabaseClient
+                                .from('events')
+                                .delete()
+                                .eq('id', eventId);
+
+                            if (error) throw error;
+                            
+                            this.showToast('Event deleted.');
+                            this.loadEvents();
+                        } catch (err) {
+                            console.error('Delete error:', err);
+                            this.showToast('Failed to delete event.');
+                            this.setLoading(false);
+                        }
+                    }
+                },
+
+                async toggleSkipDate(eventId, dateString) {
+                    const event = this.events.find(e => e.id == eventId);
+                    if (!event) return;
+                    
+                    let newSkipped = [...(event.skippedDates || [])];
+                    const index = newSkipped.indexOf(dateString);
+                    if (index > -1) {
+                        newSkipped.splice(index, 1);
+                    } else {
+                        newSkipped.push(dateString);
+                    }
+
+                    event.skippedDates = newSkipped;
+                    this.renderSkipDatesList(event);
+
+                    try {
+                        const { error } = await supabaseClient
+                            .from('events')
+                            .update({ skipped_dates: newSkipped })
+                            .eq('id', eventId);
+                        
+                        if(error) console.error("Error saving skip date:", error);
+                    } catch (err) {
+                        console.error("Error saving skip date:", err);
+                    }
+                },
+
+                // === FILTER & RENDER LOGIC ===
+                
+                getFilteredSourceEvents() {
+                    const loc = this.locationFilter.value;
+                    const game = this.gameFilter.value;
+                    const query = this.searchInput.value.toLowerCase().trim();
+
+                    return this.events.filter(event => {
+                        const matchesLoc = loc ? event.location === loc : true;
+                        const matchesGame = game ? event.game === game : true;
+                        const matchesSearch = query ? (
+                            (event.title || '').toLowerCase().includes(query) ||
+                            (event.description || '').toLowerCase().includes(query) ||
+                            (event.game || '').toLowerCase().includes(query)
+                        ) : true;
+                        
+                        return matchesLoc && matchesGame && matchesSearch;
+                    });
+                },
+
+                renderEventList() {
+                    this.eventListContainer.innerHTML = '';
+                    
+                    const filteredSourceEvents = this.getFilteredSourceEvents();
+                    const viewMode = this.statusFilter.value; 
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+
+                    let displayItems = [];
+                    let isSourceView = false; 
+
+                    if (viewMode === 'upcoming') {
+                        const occurrences = this.generateDisplayOccurrences(365, filteredSourceEvents);
+                        displayItems = occurrences; 
+                    } else if (viewMode === 'all') {
+                        displayItems = [...filteredSourceEvents].sort((a,b) => new Date(b.startDate) - new Date(a.startDate));
+                        isSourceView = true;
+                    } else if (viewMode === 'past') {
+                        displayItems = filteredSourceEvents
+                            .filter(e => new Date(e.startDate) < today)
+                            .sort((a,b) => new Date(b.startDate) - new Date(a.startDate));
+                        isSourceView = true;
+                    }
+
+                    if (displayItems.length === 0) {
+                        const message = viewMode === 'upcoming' 
+                            ? "No upcoming events match your filters." 
+                            : "No matching events found in the database.";
+                        this.eventListContainer.innerHTML = `<div class="text-center py-10 bg-white rounded-lg shadow-md"><h2 class="text-2xl font-semibold text-gray-700">${message}</h2><p class="text-gray-500 mt-2">Try adjusting your search or filters.</p></div>`;
+                        return;
+                    }
+                    
+                    const groupedEvents = {};
+                    
+                    displayItems.forEach(item => {
+                        let dateObj;
+                        if (isSourceView) {
+                            dateObj = new Date(item.startDate + 'T00:00:00'); 
+                        } else {
+                            dateObj = item.occurrenceDate;
+                        }
+
+                        const groupKey = isSourceView 
+                            ? "Database Listing" 
+                            : dateObj.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+                        
+                        if (!groupedEvents[groupKey]) groupedEvents[groupKey] = [];
+                        groupedEvents[groupKey].push(item);
+                    });
+
+                    for (const group in groupedEvents) {
+                        const section = document.createElement('section');
+                        section.innerHTML = `<h2 class="text-2xl font-bold text-gray-800 pb-4 border-b border-gray-300">${group}</h2>`;
+                        const container = document.createElement('div');
+                        container.className = 'space-y-6 mt-6';
+
+                        groupedEvents[group].forEach(event => {
+                            let dateDisplay, timeDisplay, badge;
+                            
+                            if (isSourceView) {
+                                const d = new Date(event.startDate + 'T00:00:00');
+                                dateDisplay = `Starts: ${d.toLocaleDateString()}`;
+                                timeDisplay = event.time;
+                                const repeatText = event.repeat === 'none' ? 'One-time' : (event.repeat === 'weekly' ? 'Weekly' : 'Monthly');
+                                badge = `<span class="inline-block bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded-full uppercase font-semibold tracking-wide">${repeatText}</span>`;
+                            } else {
+                                dateDisplay = event.occurrenceDate.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                                timeDisplay = event.occurrenceDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                                badge = '';
+                            }
+
+                            const eventEl = document.createElement('div');
+                            eventEl.className = 'bg-white p-4 sm:p-6 rounded-lg shadow-md flex flex-col sm:flex-row items-start gap-6';
+                            eventEl.style.borderLeft = `5px solid ${event.color || '#d1d5db'}`;
+                            
+                            const ticketBtnClass = event.customUrl ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 hover:bg-gray-500';
+                            const locationData = this.locations[event.location];
+                            const locationHtml = locationData ? `<a href="${locationData.url}" target="_blank" class="text-gray-600 mt-1 hover:text-indigo-600 underline">${locationData.fullText}</a>` : '';
+                            const gameHtml = event.game ? `<p class="text-md font-semibold text-gray-600 flex items-center gap-2">${event.game} ${badge}</p>` : badge;
+                            const entryHtml = event.entry ? `<p class="text-sm text-gray-500 mt-2"><strong>Entry:</strong> ${event.entry}</p>` : '';
+                            const formatHtml = event.format ? `<p class="text-sm text-gray-500"><strong>Format:</strong> ${event.format}</p>` : '';
+                            const descriptionHtml = `<div class="mt-3"><h4 class="font-semibold text-gray-800">Description:</h4><p class="text-gray-700 whitespace-pre-wrap">${event.description || 'No description provided.'}</p></div>`;
+                            const prizingHtml = event.prizing ? `<div class="mt-3"><h4 class="font-semibold text-gray-800">Prizing:</h4><p class="text-gray-700 whitespace-pre-wrap">${event.prizing}</p></div>` : '';
+
+                            eventEl.innerHTML = `
+                                <img src="${event.imageUrl || 'https://placehold.co/200x200/e2e8f0/cbd5e0?text=Event'}" onerror="this.onerror=null;this.src='https://placehold.co/200x200/e2e8f0/cbd5e0?text=Event';" alt="Event image" class="w-full sm:w-48 h-48 sm:h-auto object-cover rounded-md flex-shrink-0 bg-gray-200">
+                                <div class="flex-grow">
+                                    <div class="mb-2">
+                                        <p class="text-lg font-semibold text-indigo-600">${dateDisplay}</p>
+                                        <p class="text-lg font-semibold text-indigo-600">${timeDisplay}</p>
+                                    </div>
+                                    ${gameHtml}
+                                    <h3 class="text-2xl font-bold text-gray-900">${event.title}</h3>
+                                    ${locationHtml}
+                                    ${entryHtml}
+                                    ${formatHtml}
+                                    ${descriptionHtml}
+                                    ${prizingHtml}
+                                    <div class="mt-6 flex items-center space-x-4">
+                                        <button data-custom-url="${event.customUrl || ''}" class="get-tickets-btn inline-block text-center text-white font-semibold py-2 px-6 rounded-md shadow-sm transition-all ${ticketBtnClass}">Get Tickets</button>
+                                        <button data-id="${event.id}" class="copy-btn text-sm font-medium text-gray-600 hover:text-blue-600">Copy</button>
+                                        <button data-id="${event.id}" class="edit-btn text-sm font-medium text-gray-600 hover:text-indigo-600">Edit</button>
+                                        <button data-id="${event.id}" class="delete-btn text-sm font-medium text-gray-600 hover:text-red-600">Delete</button>
+                                    </div>
+                                </div>
+                            `;
+                            container.appendChild(eventEl);
+                        });
+                        section.appendChild(container);
+                        this.eventListContainer.appendChild(section);
+                    }
+                    
+                    this.attachCardListeners();
+                },
+
+                attachCardListeners() {
+                    this.eventListContainer.querySelectorAll('.copy-btn').forEach(btn => btn.addEventListener('click', (e) => this.openEditModal(e.target.dataset.id, 'copy')));
+                    this.eventListContainer.querySelectorAll('.edit-btn').forEach(btn => btn.addEventListener('click', (e) => this.openEditModal(e.target.dataset.id, 'edit')));
+                    this.eventListContainer.querySelectorAll('.delete-btn').forEach(btn => btn.addEventListener('click', (e) => this.deleteEvent(e.target.dataset.id)));
+                    this.eventListContainer.querySelectorAll('.get-tickets-btn').forEach(btn => btn.addEventListener('click', (e) => {
+                        const url = e.target.dataset.customUrl;
+                        if (url) window.open(url, '_blank');
+                        else this.showToast('No ticket required for this event.');
+                    }));
+                },
+
+                openEditModal(eventId = null, mode = 'create') {
+                    this.editForm.reset();
+                    const modalTitle = this.modal.querySelector('#modal-title');
+                    const saveButton = this.modal.querySelector('#modal-save-button');
+                    const eventIdInput = this.editForm.querySelector('#edit-event-id');
+
+                    let event = {};
+                    if (eventId) {
+                        event = this.events.find(e => e.id == eventId) || {};
+                        if (mode === 'edit') {
+                            modalTitle.textContent = 'Edit Event';
+                            saveButton.textContent = 'Save Changes';
+                            eventIdInput.value = event.id;
+                        } else if (mode === 'copy') {
+                            modalTitle.textContent = 'Copy Event';
+                            saveButton.textContent = 'Save as New Event';
+                            eventIdInput.value = ''; 
+                        }
+                    } else {
+                        modalTitle.textContent = 'Create a New Event';
+                        saveButton.textContent = 'Create Event';
+                        eventIdInput.value = '';
+                        event = {};
+                    }
+
+                    this.editForm.querySelector('#edit-event-game').value = event.game || '';
+                    this.editForm.querySelector('#edit-event-title').value = event.title || '';
+                    this.editForm.querySelector('#edit-event-date').value = event.startDate || '';
+                    this.editForm.querySelector('#edit-event-time').value = event.time || '';
+                    this.editForm.querySelector('#edit-event-location').value = event.location || 'york';
+                    this.editForm.querySelector('#edit-event-repeat').value = event.repeat || 'none';
+                    this.editForm.querySelector('#edit-event-entry').value = event.entry || '';
+                    this.editForm.querySelector('#edit-event-format').value = event.format || '';
+                    this.editForm.querySelector('#edit-event-description').value = event.description || '';
+                    this.editForm.querySelector('#edit-event-prizing').value = event.prizing || '';
+                    this.editForm.querySelector('#edit-event-image-url').value = event.imageUrl || '';
+                    this.editForm.querySelector('#edit-event-custom-url').value = event.customUrl || '';
+                    
+                    this.renderColorSelector(event.color);
+                    this.renderSkipDatesList(event);
+                    this.toggleSkipDatesSection(event.repeat && event.repeat !== 'none' && mode !== 'copy');
+                    this.modal.classList.remove('hidden');
+                },
+
+                renderSkipDatesList(event) {
+                    const container = this.editForm.querySelector('#skip-dates-list');
+                    container.innerHTML = '';
+                    if (!event || !event.id || !event.repeat || event.repeat === 'none') {
+                        this.toggleSkipDatesSection(false);
+                        return;
+                    }
+
+                    this.toggleSkipDatesSection(true);
+                    
+                    const occurrences = this.generateDisplayOccurrences(90, this.events).filter(occ => occ.id === event.id);
+                    
+                    if (occurrences.length === 0) {
+                        container.innerHTML = '<p class="text-sm text-gray-500">No upcoming occurrences found within 90 days.</p>';
+                        return;
+                    }
+
+                    occurrences.forEach(occ => {
+                        const dateString = occ.originalDateString;
+                        const isSkipped = event.skippedDates && event.skippedDates.includes(dateString);
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.dataset.date = dateString;
+                        button.textContent = occ.occurrenceDate.toLocaleDateString(undefined, { dateStyle: 'medium' });
+                        button.className = `w-full text-left p-2 rounded-md ${isSkipped ? 'bg-gray-300 text-gray-500 line-through' : 'bg-white hover:bg-gray-100'}`;
+                        button.addEventListener('click', () => this.toggleSkipDate(event.id, dateString));
+                        container.appendChild(button);
+                    });
+                },
+
+                toggleSkipDatesSection(show) {
+                    this.editForm.querySelector('#skip-dates-section').classList.toggle('hidden', !show);
+                },
+
+                renderColorSelector(selectedColor) {
+                    const container = this.editForm.querySelector('#color-selector');
+                    const hexInput = this.editForm.querySelector('#hex-color-input');
+                    container.innerHTML = '';
+                    let isSwatchSelected = false;
+
+                    this.colors.forEach(color => {
+                        const swatch = document.createElement('div');
+                        swatch.className = 'color-swatch';
+                        swatch.style.backgroundColor = color;
+                        swatch.dataset.color = color;
+                        if (color === selectedColor) {
+                            swatch.classList.add('selected');
+                            isSwatchSelected = true;
+                        }
+                        swatch.addEventListener('click', () => {
+                            container.querySelector('.selected')?.classList.remove('selected');
+                            swatch.classList.add('selected');
+                            hexInput.value = '';
+                            this.handleHexInput('');
+                        });
+                        container.appendChild(swatch);
+                    });
+                    
+                    if (!isSwatchSelected && selectedColor) {
+                        hexInput.value = selectedColor;
+                        this.handleHexInput(selectedColor);
+                    } else {
+                        hexInput.value = '';
+                        this.handleHexInput('');
+                    }
+                },
+                
+                handleHexInput(value) {
+                    const preview = this.editForm.querySelector('#hex-color-preview');
+                    const hexRegex = /^#[0-9A-F]{6}$/i;
+                    if (hexRegex.test(value)) {
+                        preview.style.backgroundColor = value;
+                        this.editForm.querySelector('#color-selector .selected')?.classList.remove('selected');
+                    } else {
+                        preview.style.backgroundColor = 'transparent';
+                    }
+                },
+
+                closeEditModal() {
+                    this.modal.classList.add('hidden');
+                },
+
+                showToast(message) {
+                    const toast = document.getElementById('toast-notification');
+                    const toastMessage = document.getElementById('toast-message');
+                    if (!toast || !toastMessage) return;
+                    toastMessage.textContent = message;
+                    toast.classList.remove('opacity-0');
+                    setTimeout(() => {
+                        toast.classList.add('opacity-0');
+                    }, 3000);
+                },
+
+                // Generator helpers
+                getFilterScript() {
+                    return `
+            document.addEventListener('DOMContentLoaded', () => {
+                const gameFilter = document.getElementById('game-filter');
+                if (!gameFilter) return;
+
+                const eventCards = document.querySelectorAll('.event-card');
+                const weekHeadings = document.querySelectorAll('.week-heading');
+                
+                const games = new Set();
+                eventCards.forEach(card => {
+                    if (card.dataset.game) {
+                        games.add(card.dataset.game);
+                    }
+                });
+                
+                const sortedGames = Array.from(games).sort();
+                gameFilter.innerHTML = '<option value="">All Games</option>';
+                sortedGames.forEach(game => {
+                    gameFilter.innerHTML += \`<option value="\${game}">\${game}</option>\`;
+                });
+
+                gameFilter.addEventListener('change', (e) => {
+                    const selectedGame = e.target.value;
+                    let visibleCount = 0;
+                    eventCards.forEach(card => {
+                        const cardVisible = !selectedGame || card.dataset.game === selectedGame;
+                        card.style.display = cardVisible ? 'block' : 'none';
+                        if(cardVisible) visibleCount++;
+                    });
+
+                    weekHeadings.forEach(heading => {
+                        let nextElement = heading.nextElementSibling;
+                        if (nextElement && nextElement.classList.contains('week-events-container')) {
+                            const visibleEventsInWeek = nextElement.querySelectorAll('.event-card[style*="display: block"]').length;
+                             heading.style.display = visibleEventsInWeek > 0 ? 'block' : 'none';
+                        }
+                    });
+
+                    const noEventsMessage = document.getElementById('no-events-message');
+                    if(noEventsMessage) {
+                        noEventsMessage.style.display = visibleCount === 0 ? 'block' : 'none';
+                    }
+                });
+            });`;
+                },
+
+                renderLocationFilter() {
+                    const selectedValue = this.locationFilter.value;
+                    this.locationFilter.innerHTML = '<option value="">All Locations</option>';
+                    for (const locKey in this.locations) {
+                        const option = document.createElement('option');
+                        option.value = locKey;
+                        option.textContent = this.locations[locKey].text;
+                        this.locationFilter.appendChild(option);
+                    }
+                    this.locationFilter.value = selectedValue;
+                },
+                
+                renderGameFilter() {
+                    const selectedValue = this.gameFilter.value;
+                    const uniqueGames = [...new Set(this.events.map(e => e.game).filter(g => g))].sort();
+                    this.gameFilter.innerHTML = '<option value="">All Games</option>';
+                    uniqueGames.forEach(game => {
+                        const option = document.createElement('option');
+                        option.value = game;
+                        option.textContent = game;
+                        this.gameFilter.appendChild(option);
+                    });
+                    this.gameFilter.value = selectedValue;
+                },
+
+                // === EXPORT / IMPORT ===
+                exportData() {
+                    const dataStr = JSON.stringify(this.events, null, 2);
+                    this.downloadFile('events-backup.json', dataStr, 'application/json');
+                    this.showToast('Backup exported successfully!');
+                },
+
+                async importData(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const importedEvents = JSON.parse(e.target.result);
+                            if (!Array.isArray(importedEvents)) throw new Error("Invalid format");
+
+                            const choice = confirm("You are about to import events into the database.\n\nClick OK to ADD these events to the database.\nClick Cancel to abort.");
+
+                            if (choice) {
+                                this.setLoading(true);
+                                
+                                const dbRows = importedEvents.map(evt => ({
+                                    game: evt.game,
+                                    title: evt.title,
+                                    start_date: evt.startDate || evt.start_date,
+                                    time: evt.time,
+                                    location: evt.location,
+                                    repeat_pattern: evt.repeat || evt.repeat_pattern,
+                                    entry: evt.entry,
+                                    format: evt.format,
+                                    description: evt.description,
+                                    prizing: evt.prizing,
+                                    image_url: evt.imageUrl || evt.image_url,
+                                    custom_url: evt.customUrl || evt.custom_url,
+                                    color: evt.color,
+                                    skipped_dates: evt.skippedDates || evt.skipped_dates || []
+                                }));
+
+                                const { error } = await supabaseClient
+                                    .from('events')
+                                    .insert(dbRows);
+
+                                if (error) throw error;
+                                
+                                this.showToast(`Successfully imported ${dbRows.length} events.`);
+                                this.loadEvents();
+                            }
+                        } catch (error) {
+                            console.error(error);
+                            this.showToast("Error during import. Check console.");
+                            this.setLoading(false);
+                        } finally {
+                            this.importFileInput.value = '';
+                        }
+                    };
+                    reader.readAsText(file);
+                },
+
+                // === HELPER FUNCTIONS ===
+                downloadFile(filename, content, mimeType) {
+                    const blob = new Blob([content], { type: mimeType });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                },
+
+                formatDiscordEvent(event) {
+                    let text = `@${event.game || 'General'}\n`;
+                    const dateString = event.occurrenceDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                    const timeString = event.occurrenceDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                    text += `${dateString} at ${timeString}\n`;
+                    text += `${event.title}\n`;
+                    if (event.entry) text += `Entry: ${event.entry}\n`;
+                    if (event.format) text += `Format: ${event.format}\n`;
+                    if (event.description) text += `${event.description}\n`;
+                    if (event.prizing) text += `Prizing:\n${event.prizing}\n`;
+                    return text;
+                },
+
+                generateDisplayOccurrences(limit = 365, sourceEvents = this.events) {
+                    const displayEvents = [];
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const overallLimitDate = new Date();
+                    overallLimitDate.setDate(overallLimitDate.getDate() + limit);
+
+                    sourceEvents.forEach(event => {
+                        if (!event.startDate || !event.time) return;
+                        const startDate = new Date(`${event.startDate}T00:00:00`);
+                        if (event.repeat === 'none') {
+                            const occurrenceDate = new Date(`${event.startDate}T${event.time}`);
+                            if (occurrenceDate >= today) {
+                                displayEvents.push({ ...event, occurrenceDate });
+                            }
+                        } else {
+                            let currentDate = new Date(startDate);
+                            let recurrenceLimitDate = new Date(startDate);
+                            if (event.repeat === 'weekly') {
+                                recurrenceLimitDate.setDate(recurrenceLimitDate.getDate() + 7 * 7);
+                            } else if (event.repeat === 'monthly') {
+                                recurrenceLimitDate.setMonth(recurrenceLimitDate.getMonth() + 2);
+                            }
+
+                            const finalLimitDate = overallLimitDate < recurrenceLimitDate ? overallLimitDate : recurrenceLimitDate;
+
+                            while(currentDate <= finalLimitDate) {
+                                const dateString = currentDate.toISOString().split('T')[0];
+                                if (!event.skippedDates || !event.skippedDates.includes(dateString)) {
+                                    const occurrenceDate = new Date(`${dateString}T${event.time}`);
+                                    if (occurrenceDate >= today) {
+                                        displayEvents.push({ ...event, occurrenceDate, originalDateString: dateString });
+                                    }
+                                }
+                                if (event.repeat === 'weekly') {
+                                    currentDate.setDate(currentDate.getDate() + 7);
+                                } else if (event.repeat === 'monthly') {
+                                    currentDate.setMonth(currentDate.getMonth() + 1);
+                                }
+                            }
+                        }
+                    });
+                    displayEvents.sort((a, b) => a.occurrenceDate - b.occurrenceDate);
+                    return displayEvents;
+                },
+                
+                getOccurrencesInRange(rangeStart, rangeEnd, sourceEvents = this.events) {
+                    const displayEvents = [];
+                    sourceEvents.forEach(event => {
+                        if (!event.startDate || !event.time) return;
+                        const eventStartDate = new Date(`${event.startDate}T00:00:00`);
+
+                        if (event.repeat === 'none') {
+                            const occurrenceDate = new Date(`${event.startDate}T${event.time}`);
+                            if (occurrenceDate >= rangeStart && occurrenceDate <= rangeEnd) {
+                                displayEvents.push({ ...event, occurrenceDate });
+                            }
+                        } else {
+                            let currentDate = new Date(eventStartDate);
+                            let recurrenceLimitDate = new Date(eventStartDate);
+                            if (event.repeat === 'weekly') {
+                                recurrenceLimitDate.setDate(recurrenceLimitDate.getDate() + 7 * 7);
+                            } else if (event.repeat === 'monthly') {
+                                recurrenceLimitDate.setMonth(recurrenceLimitDate.getMonth() + 2);
+                            }
+
+                            const loopStartDate = rangeStart > eventStartDate ? rangeStart : eventStartDate;
+                            const loopEndDate = rangeEnd < recurrenceLimitDate ? rangeEnd : recurrenceLimitDate;
+
+                            while (currentDate < loopStartDate) {
+                                if (event.repeat === 'weekly') currentDate.setDate(currentDate.getDate() + 7);
+                                else if (event.repeat === 'monthly') currentDate.setMonth(currentDate.getMonth() + 1);
+                            }
+
+                            while (currentDate <= loopEndDate) {
+                                if (currentDate >= eventStartDate) {
+                                    const dateString = currentDate.toISOString().split('T')[0];
+                                    if (!event.skippedDates || !event.skippedDates.includes(dateString)) {
+                                        const occurrenceDate = new Date(`${dateString}T${event.time}`);
+                                        if (occurrenceDate >= rangeStart && occurrenceDate <= rangeEnd) {
+                                            displayEvents.push({ ...event, occurrenceDate, originalDateString: dateString });
+                                        }
+                                    }
+                                }
+                                if (event.repeat === 'weekly') currentDate.setDate(currentDate.getDate() + 7);
+                                else if (event.repeat === 'monthly') currentDate.setMonth(currentDate.getMonth() + 1);
+                            }
+                        }
+                    });
+                    displayEvents.sort((a, b) => a.occurrenceDate - b.occurrenceDate);
+                    return displayEvents;
+                },
+                // ... (Original Generators Kept Here) ...
+                generateDiscordFile() {
+                    const today = new Date();
+                    const dayOfWeek = today.getDay(); 
+                    let diffToMonday = 0;
+                    if (dayOfWeek === 0) diffToMonday = -6; else diffToMonday = 1 - dayOfWeek;
+                    const nextMonday = new Date(today); nextMonday.setDate(today.getDate() + diffToMonday); nextMonday.setHours(0, 0, 0, 0);
+                    const nextSunday = new Date(nextMonday); nextSunday.setDate(nextMonday.getDate() + 6); nextSunday.setHours(23, 59, 59, 999);
+                    const sourceEvents = this.getFilteredSourceEvents();
+                    const allOccurrences = this.generateDisplayOccurrences(30, sourceEvents);
+                    const weekOccurrences = allOccurrences.filter(occ => occ.occurrenceDate >= nextMonday && occ.occurrenceDate <= nextSunday);
+                    if (weekOccurrences.length === 0) { this.showToast("No events scheduled for the upcoming week."); return; }
+                    const eventsByDay = {}; const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']; dayOrder.forEach(day => eventsByDay[day] = []);
+                    weekOccurrences.forEach(event => { const dayName = event.occurrenceDate.toLocaleDateString('en-US', { weekday: 'long' }); if (eventsByDay[dayName]) eventsByDay[dayName].push(event); });
+                    let discordText = ''; let firstDay = true;
+                    dayOrder.forEach(dayName => { const dailyEvents = eventsByDay[dayName]; if (dailyEvents.length > 0) { if (!firstDay) discordText += '\n'; discordText += `**--- ${dayName.toUpperCase()} ---**\n\n`; firstDay = false; dailyEvents.sort((a, b) => (a.game || '').localeCompare(b.game || '')); dailyEvents.forEach((event, index) => { discordText += this.formatDiscordEvent(event); if (index < dailyEvents.length - 1) discordText += '--------------------\n'; }); } });
+                    this.downloadFile('discord-weekly-messages.txt', discordText, 'text/plain');
+                },
+                generateDiscordGameFile() {
+                    const today = new Date(); const dayOfWeek = today.getDay(); let diffToMonday = 0; if (dayOfWeek === 0) diffToMonday = -6; else diffToMonday = 1 - dayOfWeek;
+                    const nextMonday = new Date(today); nextMonday.setDate(today.getDate() + diffToMonday); nextMonday.setHours(0, 0, 0, 0);
+                    const nextSunday = new Date(nextMonday); nextSunday.setDate(nextMonday.getDate() + 6); nextSunday.setHours(23, 59, 59, 999);
+                    const sourceEvents = this.getFilteredSourceEvents(); const allOccurrences = this.generateDisplayOccurrences(30, sourceEvents);
+                    const weekOccurrences = allOccurrences.filter(occ => occ.occurrenceDate >= nextMonday && occ.occurrenceDate <= nextSunday);
+                    if (weekOccurrences.length === 0) { this.showToast("No events scheduled for the upcoming week."); return; }
+                    const eventsByGame = {}; weekOccurrences.forEach(event => { const gameName = event.game || 'General'; if (!eventsByGame[gameName]) eventsByGame[gameName] = []; eventsByGame[gameName].push(event); });
+                    let discordText = ''; const sortedGames = Object.keys(eventsByGame).sort();
+                    sortedGames.forEach((gameName, gameIndex) => { discordText += `**--- ${gameName.toUpperCase()} ---**\n\n`; const gameEvents = eventsByGame[gameName]; gameEvents.sort((a,b) => a.occurrenceDate - b.occurrenceDate); gameEvents.forEach((event, eventIndex) => { discordText += this.formatDiscordEvent(event); if (eventIndex < gameEvents.length - 1) discordText += '--------------------\n'; }); if (gameIndex < sortedGames.length - 1) discordText += '\n'; });
+                    this.downloadFile('discord-game-messages.txt', discordText, 'text/plain');
+                },
+                generateDiscordGamePreviewFile() {
+                    const today = new Date(); const lastMonday = new Date(today); const day = today.getDay(); const diff = lastMonday.getDate() - day + (day === 0 ? -6 : 1) - 7;
+                    lastMonday.setDate(diff); lastMonday.setHours(0, 0, 0, 0); const lastSunday = new Date(lastMonday); lastSunday.setDate(lastMonday.getDate() + 6); lastSunday.setHours(23, 59, 59, 999);
+                    const sourceEvents = this.getFilteredSourceEvents(); const weekOccurrences = this.getOccurrencesInRange(lastMonday, lastSunday, sourceEvents);
+                    if (weekOccurrences.length === 0) { this.showToast("No events were scheduled for the previous week."); return; }
+                    const eventsByGame = {}; weekOccurrences.forEach(event => { const gameName = event.game || 'General'; if (!eventsByGame[gameName]) eventsByGame[gameName] = []; eventsByGame[gameName].push(event); });
+                    let discordText = ''; const sortedGames = Object.keys(eventsByGame).sort();
+                    sortedGames.forEach((gameName, gameIndex) => { discordText += `**--- ${gameName.toUpperCase()} ---**\n\n`; const gameEvents = eventsByGame[gameName]; gameEvents.sort((a,b) => a.occurrenceDate - b.occurrenceDate); gameEvents.forEach((event, eventIndex) => { discordText += this.formatDiscordEvent(event); if (eventIndex < gameEvents.length - 1) discordText += '--------------------\n'; }); if (gameIndex < sortedGames.length - 1) discordText += '\n'; });
+                    this.downloadFile('discord-game-messages-preview.txt', discordText, 'text/plain');
+                },
+                generateViewerFile() {
+                    const sourceEvents = this.getFilteredSourceEvents();
+                    const viewerHTML = `
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Upcoming Events</title><script src="https://cdn.tailwindcss.com"><\/script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body { font-family: 'Inter', sans-serif; } .modal-body { max-height: 80vh; }<\/style></head><body class="bg-gray-100 text-gray-800"><div class="container mx-auto p-4 sm:p-6 lg:p-8">
+<header class="mb-8"><h1 class="text-3xl sm:text-4xl font-bold text-gray-900">Upcoming Events</h1>
+<div class="mt-4"><label for="game-filter" class="block text-sm font-medium text-gray-700">Filter by Game:</label><select id="game-filter" class="mt-1 block w-full sm:w-64 rounded-md border-gray-300 shadow-sm"></select></div>
+</header>
+<div id="calendar-nav" class="flex justify-between items-center p-4 bg-white rounded-lg shadow-sm mb-6">
+    <button id="nav-prev" class="font-bold text-2xl text-indigo-600 hover:text-indigo-800 disabled:text-gray-400 disabled:cursor-not-allowed" disabled><</button>
+    <h2 id="calendar-title" class="text-2xl font-bold text-gray-900"></h2>
+    <button id="nav-next" class="font-bold text-2xl text-indigo-600 hover:text-indigo-800">></button>
+</div>
+<main id="month-content" class="mt-8"></main></div>
+<div id="details-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 hidden"><div class="bg-white rounded-lg shadow-xl w-full max-w-2xl"><div id="details-modal-content" class="p-6 overflow-y-auto modal-body"></div><div class="p-4 bg-gray-50 border-t flex justify-end"><button id="details-modal-close" class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button></div></div></div>
+<script>
+const eventsData = ${JSON.stringify(sourceEvents)};
+const locationsData = ${JSON.stringify(this.locations)};
+// VIEWER LOGIC WILL BE INJECTED HERE
+<\/script></body></html>`;
+                    const viewerLogic = `
+        const monthContentContainer = document.getElementById('month-content');
+        const detailsModal = document.getElementById('details-modal');
+        const detailsModalContent = document.getElementById('details-modal-content');
+        const detailsModalClose = document.getElementById('details-modal-close');
+        const gameFilter = document.getElementById('game-filter');
+        const navPrev = document.getElementById('nav-prev');
+        const navNext = document.getElementById('nav-next');
+        const calendarTitle = document.getElementById('calendar-title');
+        
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        
+        let currentViewingDate = new Date();
+        currentViewingDate.setDate(1); 
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        function populateGameFilter() {
+            const uniqueGames = [...new Set(eventsData.map(e => e.game).filter(g => g))].sort();
+            gameFilter.innerHTML = '<option value="">All Games</option>';
+            uniqueGames.forEach(game => {
+                gameFilter.innerHTML += \`<option value="\${game}">\${game}</option>\`;
+            });
+        }
+        gameFilter.addEventListener('change', () => renderCalendarView());
+
+        function generateDisplayOccurrences(events, viewDate) {
+            const displayEvents = []; 
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            const firstDayOfMonth = new Date(year, month, 1);
+            const lastDayOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
+
+            events.forEach(event => {
+                if (!event.startDate || !event.time) return;
+                const startDate = new Date(event.startDate + 'T00:00:00');
+                if (event.repeat === 'none') {
+                    const occurrenceDate = new Date(event.startDate + 'T' + event.time);
+                    if (occurrenceDate >= firstDayOfMonth && occurrenceDate <= lastDayOfMonth && occurrenceDate >= today) {
+                        displayEvents.push({ ...event, occurrenceDate });
+                    }
+                } else {
+                    let currentDate = new Date(startDate);
+                    let recurrenceLimitDate = new Date(startDate);
+                    if (event.repeat === 'weekly') { recurrenceLimitDate.setDate(recurrenceLimitDate.getDate() + 7 * 7); }
+                    else if (event.repeat === 'monthly') { recurrenceLimitDate.setMonth(recurrenceLimitDate.getMonth() + 2); }
+                    while (currentDate < firstDayOfMonth) {
+                         if (event.repeat === 'weekly') { currentDate.setDate(currentDate.getDate() + 7); }
+                         else if (event.repeat === 'monthly') { currentDate.setMonth(currentDate.getMonth() + 1); }
+                    }
+                    while(currentDate <= lastDayOfMonth && currentDate <= recurrenceLimitDate) {
+                        const dateString = currentDate.toISOString().split('T')[0];
+                        if (!event.skippedDates || !event.skippedDates.includes(dateString)) {
+                            const occurrenceDate = new Date(dateString + 'T' + event.time);
+                            if (occurrenceDate >= firstDayOfMonth && occurrenceDate <= lastDayOfMonth && occurrenceDate >= today) {
+                                displayEvents.push({ ...event, occurrenceDate });
+                            }
+                        }
+                        if (event.repeat === 'weekly') currentDate.setDate(currentDate.getDate() + 7);
+                        else if (event.repeat === 'monthly') currentDate.setMonth(currentDate.getMonth() + 1);
+                    }
+                }
+            });
+            displayEvents.sort((a, b) => a.occurrenceDate - b.occurrenceDate); return displayEvents;
+        }
+
+        function openEventDetailsModal(eventId, occurrenceDateStr) {
+            const event = eventsData.find(e => e.id == eventId);
+            if (!event) return;
+            const occurrenceDate = new Date(occurrenceDateStr);
+            const locationData = locationsData[event.location];
+            const gameHtml = event.game ? \`<p class="text-xl font-semibold text-gray-700">\${event.game}</p>\` : '';
+            const locationHtml = locationData ? '<a href="' + locationData.url + '" target="_blank" class="text-gray-600 mt-1 hover:text-indigo-600 underline">' + locationData.fullText + '</a>' : '';
+            const ticketButtonHtml = event.customUrl ? \`<div class="mt-6"><a href="\${event.customUrl}" target="_blank" class="inline-block text-center bg-indigo-600 text-white font-semibold py-2 px-6 rounded-md shadow-sm hover:bg-indigo-700 transition-all">Get Tickets</a></div>\` : '';
+            const entryHtml = event.entry ? \`<p class="text-sm text-gray-500 mt-2"><strong>Entry:</strong> \${event.entry}</p>\` : '';
+            const formatHtml = event.format ? \`<p class="text-sm text-gray-500"><strong>Format:</strong> \${event.format}</p>\` : '';
+            const descriptionHtml = \`<div class="mt-4"><h3 class="font-semibold text-lg">Description:</h3><p class="text-gray-700 whitespace-pre-wrap">\${event.description || 'No description provided.'}</p></div>\`;
+            const prizingHtml = event.prizing ? \`<div class="mt-4"><h3 class="font-semibold text-lg">Prizing:</h3><p class="text-gray-700 whitespace-pre-wrap">\${event.prizing}</p></div>\` : '';
+            
+            detailsModalContent.innerHTML = \`
+                <img src="\${event.imageUrl || 'https://placehold.co/600x300/e2e8f0/cbd5e0?text=Event'}" onerror="this.onerror=null;this.src='https://placehold.co/600x300/e2e8f0/cbd5e0?text=Event';" alt="Event image" class="w-full h-64 object-cover rounded-md mb-4">
+                \${gameHtml}
+                <h2 class="text-3xl font-bold">\${event.title}</h2>
+                <div class="my-2">
+                    <p class="text-lg font-semibold text-indigo-600">\${occurrenceDate.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    <p class="text-lg font-semibold text-indigo-600">\${occurrenceDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+                \${locationHtml}
+                \${entryHtml}
+                \${formatHtml}
+                \${descriptionHtml}
+                \${prizingHtml}
+                \${ticketButtonHtml}
+            \`;
+            detailsModal.classList.remove('hidden');
+        }
+
+        detailsModalClose.addEventListener('click', () => detailsModal.classList.add('hidden'));
+
+        function renderCalendarView() {
+            monthContentContainer.innerHTML = '';
+            
+            const selectedGame = gameFilter.value;
+            const sourceEvents = selectedGame ? eventsData.filter(e => e.game === selectedGame) : eventsData;
+
+            calendarTitle.textContent = currentViewingDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+            
+            const viewingYear = currentViewingDate.getFullYear();
+            const viewingMonth = currentViewingDate.getMonth();
+            const todayYear = today.getFullYear();
+            const todayMonth = today.getMonth();
+            
+            navPrev.disabled = (viewingYear === todayYear && viewingMonth === todayMonth);
+
+            const occurrences = generateDisplayOccurrences(sourceEvents, currentViewingDate);
+            const eventsByDay = occurrences.reduce((acc, event) => {
+                const day = event.occurrenceDate.getDate();
+                if (!acc[day]) acc[day] = [];
+                acc[day].push(event);
+                return acc;
+            }, {});
+
+            const year = currentViewingDate.getFullYear();
+            const month = currentViewingDate.getMonth();
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            let dayGridHtml = '<div class="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200">';
+            dayNames.forEach(day => { dayGridHtml += \`<div class="text-center font-semibold py-2 bg-gray-100">\${day}</div>\`; });
+            for (let i = 0; i < firstDay; i++) { dayGridHtml += '<div class="bg-gray-50"> </div>'; }
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayEvents = eventsByDay[day] || [];
+                dayGridHtml += \`<div class="bg-white p-2 min-h-[120px]">\`;
+                dayGridHtml += \`<div class="font-bold">\${day}</div>\`;
+                dayEvents.forEach(event => {
+                    dayGridHtml += \`
+                        <button data-id="\${event.id}" data-date="\${event.occurrenceDate.toISOString()}" class="event-details-btn w-full mt-1 p-1.5 rounded-md text-left text-xs" style="background-color: \${event.color}20;">
+                            <p class="font-bold text-gray-800">\${event.title}</p>
+                            <p class="text-gray-600">\${event.occurrenceDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</p>
+                            <p class="text-indigo-600 hover:underline">Details</p>
+                        </button>
+                    \`;
+                });
+                dayGridHtml += '</div>';
+            }
+            dayGridHtml += '</div>';
+            monthContentContainer.innerHTML = dayGridHtml;
+
+            monthContentContainer.querySelectorAll('.event-details-btn').forEach(btn => {
+                btn.addEventListener('click', e => {
+                    const target = e.currentTarget;
+                    openEventDetailsModal(target.dataset.id, target.dataset.date);
+                });
+            });
+        }
+        
+        navNext.addEventListener('click', () => {
+            currentViewingDate.setMonth(currentViewingDate.getMonth() + 1);
+            renderCalendarView();
+        });
+        
+        navPrev.addEventListener('click', () => {
+            currentViewingDate.setMonth(currentViewingDate.getMonth() - 1);
+            renderCalendarView();
+        });
+        
+        populateGameFilter();
+        renderCalendarView();`;
+                    const finalHtml = viewerHTML.replace('// VIEWER LOGIC WILL BE INJECTED HERE', viewerLogic);
+                    this.downloadFile('view-events.html', finalHtml, 'text/html');
+                },
+
+                generateDailyFile() {
+                    const sourceEvents = this.getFilteredSourceEvents();
+                    const allOccurrences = this.generateDisplayOccurrences(365, sourceEvents);
+                    const today = new Date();
+                    const todayString = today.toISOString().split('T')[0];
+
+                    const dailyEvents = allOccurrences.filter(event => {
+                        const eventDateString = event.occurrenceDate.toISOString().split('T')[0];
+                        return eventDateString === todayString;
+                    });
+
+                    let dailyHtml = '';
+                    if (dailyEvents.length > 0) {
+                        dailyEvents.forEach(event => {
+                            const gameHtml = event.game ? `<p class="text-md font-semibold text-gray-700">${event.game}</p>` : '';
+                            const entryHtml = event.entry ? `<p class="text-sm text-gray-600"><strong>Entry:</strong> ${event.entry}</p>` : '';
+                            const formatHtml = event.format ? `<p class="text-sm text-gray-600"><strong>Format:</strong> ${event.format}</p>` : '';
+                            const descriptionHtml = event.description ? `<div class="mt-2"><p class="font-semibold">Description:</p><p class="text-sm text-gray-700 whitespace-pre-wrap">${event.description}</p></div>` : '';
+                            const prizingHtml = event.prizing ? `<div class="mt-2"><p class="font-semibold">Prizing:</p><p class="text-sm text-gray-700 whitespace-pre-wrap">${event.prizing}</p></div>` : '';
+                            const ticketButtonHtml = event.customUrl ? `<div class="mt-4"><a href="${event.customUrl}" target="_blank" class="inline-block text-center bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm hover:bg-indigo-700 transition-all">GET TICKETS</a></div>` : '';
+                            dailyHtml += `
+                                <div class="bg-white p-4 rounded-lg shadow-sm event-card" data-game="${event.game || ''}">
+                                    ${gameHtml}
+                                    <h3 class="text-xl font-semibold text-gray-900">${event.title}</h3>
+                                    <p class="font-bold text-indigo-600">${event.occurrenceDate.toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'})}</p>
+                                    <p class="text-gray-600">${event.occurrenceDate.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'})}</p>
+                                    ${entryHtml}
+                                    ${formatHtml}
+                                    ${descriptionHtml}
+                                    ${prizingHtml}
+                                    ${ticketButtonHtml}
+                                </div>
+                            `;
+                        });
+                    }
+
+                    const dailyFileHTML = `
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Today's Events</title><script src="https://cdn.tailwindcss.com"><\/script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body { font-family: 'Inter', sans-serif; }<\/style></head><body class="bg-gray-100 text-gray-800"><div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-2xl">
+<header class="mb-8"><h1 class="text-4xl font-bold text-gray-900">Today's Events</h1>
+<div class="mt-4"><label for="game-filter" class="block text-sm font-medium text-gray-700">Filter by Game:</label><select id="game-filter" class="mt-1 block w-full sm:w-64 rounded-md border-gray-300 shadow-sm"></select></div>
+</header><main><div class="space-y-4">${dailyHtml}</div><div id="no-events-message" class="hidden text-center py-10"><p>No events match the selected filter.</p></div></main>
+<script>${this.getFilterScript()}<\/script></body></html>`;
+
+                    this.downloadFile('daily-events.html', dailyFileHTML, 'text/html');
+                },
+
+                generateWeeklyFile() {
+                    const sourceEvents = this.getFilteredSourceEvents();
+                    const occurrences = this.generateDisplayOccurrences(56, sourceEvents);
+                    const eventsByWeek = occurrences.reduce((acc, event) => {
+                        const d = new Date(event.occurrenceDate);
+                        const day = d.getDay();
+                        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                        d.setDate(diff);
+                        const weekStart = new Date(d).toISOString().split('T')[0];
+                        
+                        if (!acc[weekStart]) acc[weekStart] = [];
+                        acc[weekStart].push(event);
+                        return acc;
+                    }, {});
+
+                    let weeklyHtml = '';
+                    for (const weekStart in eventsByWeek) {
+                        const weekStartDate = new Date(`${weekStart}T00:00:00`);
+                        weeklyHtml += `<h2 class="text-2xl font-bold text-gray-800 pb-2 mb-4 border-b border-gray-300 week-heading">Week of ${weekStartDate.toLocaleDateString(undefined, {month: 'long', day: 'numeric'})}</h2>`;
+                        weeklyHtml += '<div class="week-events-container space-y-4 mb-8">';
+                        eventsByWeek[weekStart].forEach(event => {
+                            const gameHtml = event.game ? `<p class="text-md font-semibold text-gray-700">${event.game}</p>` : '';
+                            const entryHtml = event.entry ? `<p class="text-sm text-gray-600"><strong>Entry:</strong> ${event.entry}</p>` : '';
+                            const formatHtml = event.format ? `<p class="text-sm text-gray-600"><strong>Format:</strong> ${event.format}</p>` : '';
+                            const descriptionHtml = event.description ? `<div class="mt-2"><p class="font-semibold">Description:</p><p class="text-sm text-gray-700 whitespace-pre-wrap">${event.description}</p></div>` : '';
+                            const prizingHtml = event.prizing ? `<div class="mt-2"><p class="font-semibold">Prizing:</p><p class="text-sm text-gray-700 whitespace-pre-wrap">${event.prizing}</p></div>` : '';
+                            const ticketButtonHtml = event.customUrl ? `<div class="mt-4"><a href="${event.customUrl}" target="_blank" class="inline-block text-center bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm hover:bg-indigo-700 transition-all">GET TICKETS</a></div>` : '';
+                            weeklyHtml += `
+                                <div class="bg-white p-4 rounded-lg shadow-sm event-card" data-game="${event.game || ''}">
+                                    ${gameHtml}
+                                    <h3 class="text-xl font-semibold text-gray-900">${event.title}</h3>
+                                    <p class="font-bold text-indigo-600">${event.occurrenceDate.toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'})}</p>
+                                    <p class="text-gray-600">${event.occurrenceDate.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'})}</p>
+                                    ${entryHtml}
+                                    ${formatHtml}
+                                    ${descriptionHtml}
+                                    ${prizingHtml}
+                                    ${ticketButtonHtml}
+                                </div>
+                            `;
+                        });
+                        weeklyHtml += '</div>';
+                    }
+
+                    const weeklyFileHTML = `
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Weekly Events</title><script src="https://cdn.tailwindcss.com"><\/script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body { font-family: 'Inter', sans-serif; }<\/style></head><body class="bg-gray-100 text-gray-800"><div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-2xl">
+<header class="mb-8"><h1 class="text-4xl font-bold text-gray-900">Upcoming Weekly Events</h1>
+<div class="mt-4"><label for="game-filter" class="block text-sm font-medium text-gray-700">Filter by Game:</label><select id="game-filter" class="mt-1 block w-full sm:w-64 rounded-md border-gray-300 shadow-sm"></select></div>
+</header><main>${weeklyHtml}<div id="no-events-message" class="hidden text-center py-10"><p>No events match the selected filter.</p></div></main>
+<script>${this.getFilterScript()}<\/script></body></html>`;
+
+                    this.downloadFile('weekly-events.html', weeklyFileHTML, 'text/html');
+                },
+
+                generateWeeklyFileWithImages() {
+                    const sourceEvents = this.getFilteredSourceEvents();
+                    const occurrences = this.generateDisplayOccurrences(56, sourceEvents);
+                    const eventsByWeek = occurrences.reduce((acc, event) => {
+                        const d = new Date(event.occurrenceDate);
+                        const day = d.getDay();
+                        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                        d.setDate(diff);
+                        const weekStart = new Date(d).toISOString().split('T')[0];
+                        if (!acc[weekStart]) acc[weekStart] = [];
+                        acc[weekStart].push(event);
+                        return acc;
+                    }, {});
+
+                    let weeklyHtml = '';
+                    for (const weekStart in eventsByWeek) {
+                        const weekStartDate = new Date(`${weekStart}T00:00:00`);
+                        weeklyHtml += `<h2 class="text-2xl font-bold text-gray-800 pb-2 mb-4 border-b border-gray-300 week-heading">Week of ${weekStartDate.toLocaleDateString(undefined, {month: 'long', day: 'numeric'})}</h2>`;
+                        weeklyHtml += '<div class="week-events-container space-y-4 mb-8">';
+                        eventsByWeek[weekStart].forEach(event => {
+                            const gameHtml = event.game ? `<p class="text-md font-semibold text-gray-700">${event.game}</p>` : '';
+                            const entryHtml = event.entry ? `<p class="text-sm text-gray-600"><strong>Entry:</strong> ${event.entry}</p>` : '';
+                            const formatHtml = event.format ? `<p class="text-sm text-gray-600"><strong>Format:</strong> ${event.format}</p>` : '';
+                            const descriptionHtml = event.description ? `<div class="mt-2"><p class="font-semibold">Description:</p><p class="text-sm text-gray-700 whitespace-pre-wrap">${event.description}</p></div>` : '';
+                            const prizingHtml = event.prizing ? `<div class="mt-2"><p class="font-semibold">Prizing:</p><p class="text-sm text-gray-700 whitespace-pre-wrap">${event.prizing}</p></div>` : '';
+                            const ticketButtonHtml = event.customUrl ? `<div class="mt-4"><a href="${event.customUrl}" target="_blank" class="inline-block text-center bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md shadow-sm hover:bg-indigo-700 transition-all">GET TICKETS</a></div>` : '';
+                            weeklyHtml += `
+                                <div class="bg-white p-4 rounded-lg shadow-md event-card flex items-start gap-4" style="border-left: 5px solid ${event.color || '#d1d5db'};" data-game="${event.game || ''}">
+                                    <div class="w-2/5 flex-shrink-0">
+                                        <img src="${event.imageUrl || 'https://placehold.co/525x312/e2e8f0/cbd5e0?text=Event'}" onerror="this.onerror=null;this.src='https://placehold.co/525x312/e2e8f0/cbd5e0?text=Event';" alt="Event image" class="w-full h-auto object-cover rounded-md aspect-[525/312] bg-gray-200">
+                                    </div>
+                                    <div class="w-3/5 flex-grow pl-4">
+                                        ${gameHtml}
+                                        <h3 class="text-xl font-semibold text-gray-900">${event.title}</h3>
+                                        <p class="font-bold text-indigo-600">${event.occurrenceDate.toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'})}</p>
+                                        <p class="text-gray-600">${event.occurrenceDate.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'})}</p>
+                                        ${entryHtml}
+                                        ${formatHtml}
+                                        ${descriptionHtml}
+                                        ${prizingHtml}
+                                        ${ticketButtonHtml}
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        weeklyHtml += '</div>';
+                    }
+
+                    const weeklyFileHTML = `
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Weekly Events with Images</title><script src="https://cdn.tailwindcss.com"><\/script><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body { font-family: 'Inter', sans-serif; }<\/style></head><body class="bg-gray-100 text-gray-800"><div class="container mx-auto p-4 sm:p-6 lg:p-8 max-w-3xl">
+<header class="mb-8"><h1 class="text-4xl font-bold text-gray-900">Upcoming Weekly Events</h1>
+<div class="mt-4"><label for="game-filter" class="block text-sm font-medium text-gray-700">Filter by Game:</label><select id="game-filter" class="mt-1 block w-full sm:w-64 rounded-md border-gray-300 shadow-sm"></select></div>
+</header><main>${weeklyHtml}<div id="no-events-message" class="hidden text-center py-10"><p>No events match the selected filter.</p></div></main>
+<script>${this.getFilterScript()}<\/script></body></html>`;
+
+                    this.downloadFile('weekly-events-with-images.html', weeklyFileHTML, 'text/html');
+                }
+            };
+            
+            app.init();
+        });
+    </script>
+</body>
+</html>

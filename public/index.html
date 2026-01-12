@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Event Manager Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-900 flex items-center justify-center h-screen text-white">
+    <div class="bg-gray-800 p-8 rounded-lg shadow-lg w-96 relative">
+        <h1 class="text-2xl font-bold mb-6 text-center">Staff Portal</h1>
+        
+        <div id="step-1">
+            <p class="text-gray-400 text-sm mb-4 text-center">Sign in with your credentials</p>
+            <input type="email" id="email" placeholder="Email" class="w-full mb-3 p-2 rounded text-black border border-gray-600 focus:outline-none focus:border-indigo-500">
+            <input type="password" id="password" placeholder="Password" class="w-full mb-3 p-2 rounded text-black border border-gray-600 focus:outline-none focus:border-indigo-500">
+            <button id="login-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 p-2 rounded font-bold transition-colors">Verify Credentials</button>
+        </div>
+
+        <div id="step-2" class="hidden">
+            <p class="text-gray-400 text-sm mb-2 text-center">Enter the code sent to your phone</p>
+            <p id="phone-display" class="text-indigo-400 text-xs mb-4 text-center font-mono">...</p>
+            <input type="text" id="sms-code" placeholder="123456" maxlength="6" class="w-full mb-3 p-2 rounded text-black text-center text-2xl tracking-widest border border-gray-600 focus:outline-none focus:border-green-500">
+            <button id="verify-btn" class="w-full bg-green-600 hover:bg-green-700 p-2 rounded font-bold transition-colors">Confirm Code</button>
+            <button id="back-btn" class="w-full mt-2 text-gray-500 hover:text-gray-300 text-sm">Cancel</button>
+        </div>
+        
+        <p id="error-msg" class="text-red-400 text-sm mt-4 text-center hidden"></p>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        
+        // 1. URL: This usually stays the same
+        const SUPABASE_URL = 'https://iqalrzfujxultufditwv.supabase.co';
+        
+        // 2. KEY: Paste your NEW 'anon' key inside the quotes below
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlxYWxyemZ1anh1bHR1ZmRpdHd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgyMzQyMzksImV4cCI6MjA4MzU5NDIzOX0.y8CvZxl8iiYQ9LN90g5QQhNfpet7p_D9oBX7psIWmHI'; 
+        
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        let tempUserEmail = '';
+        let tempUserPhone = '';
+
+        // 1. FIRST STEP: Verify Password & Trigger SMS
+        async function handleCredentialLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorEl = document.getElementById('error-msg');
+            const btn = document.getElementById('login-btn');
+            
+            errorEl.classList.add('hidden');
+            btn.innerText = "Checking...";
+            btn.disabled = true;
+
+            try {
+                // A. Sign in with password
+                const { data, error } = await supabaseClient.auth.signInWithPassword({ 
+                    email: email, 
+                    password: password 
+                });
+                
+                if (error) throw error;
+                
+                // B. Check phone
+                const user = data.user;
+                if (!user.phone) throw new Error("No phone number found for this user.");
+
+                tempUserEmail = email;
+                tempUserPhone = user.phone;
+
+                // C. Trigger SMS OTP
+                const { error: otpError } = await supabaseClient.auth.signInWithOtp({
+                    phone: user.phone
+                });
+
+                if (otpError) throw otpError;
+
+                // D. Switch to Step 2
+                document.getElementById('step-1').classList.add('hidden');
+                document.getElementById('step-2').classList.remove('hidden');
+                document.getElementById('phone-display').innerText = "Sending to " + maskPhone(user.phone);
+                document.getElementById('sms-code').focus();
+
+            } catch (err) {
+                console.error(err);
+                errorEl.innerText = err.message || "Authentication failed.";
+                errorEl.classList.remove('hidden');
+                btn.innerText = "Verify Credentials";
+                btn.disabled = false;
+            }
+        }
+
+        // 2. SECOND STEP: Verify SMS Code
+        async function handleSmsVerify() {
+            const code = document.getElementById('sms-code').value;
+            const errorEl = document.getElementById('error-msg');
+            const btn = document.getElementById('verify-btn');
+            
+            errorEl.classList.add('hidden');
+            btn.innerText = "Verifying...";
+            btn.disabled = true;
+
+            try {
+                const { data, error } = await supabaseClient.auth.verifyOtp({
+                    phone: tempUserPhone,
+                    token: code,
+                    type: 'sms'
+                });
+
+                if (error) throw error;
+
+                // Success! Redirect
+                window.location.href = '/admin';
+
+            } catch (err) {
+                console.error(err);
+                errorEl.innerText = "Invalid code. Please try again.";
+                errorEl.classList.remove('hidden');
+                btn.innerText = "Confirm Code";
+                btn.disabled = false;
+            }
+        }
+
+        function maskPhone(phone) {
+            if(!phone) return '...';
+            return '*******' + phone.slice(-4);
+        }
+
+        // Event Listeners
+        document.getElementById('login-btn').addEventListener('click', handleCredentialLogin);
+        document.getElementById('verify-btn').addEventListener('click', handleSmsVerify);
+        
+        document.getElementById('back-btn').addEventListener('click', () => {
+            document.getElementById('step-2').classList.add('hidden');
+            document.getElementById('step-1').classList.remove('hidden');
+            document.getElementById('login-btn').innerText = "Verify Credentials";
+            document.getElementById('login-btn').disabled = false;
+        });
+
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleCredentialLogin();
+        });
+        document.getElementById('sms-code').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleSmsVerify();
+        });
+    </script>
+</body>
+</html>
