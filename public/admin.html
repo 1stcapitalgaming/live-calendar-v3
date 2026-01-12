@@ -942,12 +942,14 @@
                             const importedEvents = JSON.parse(e.target.result);
                             if (!Array.isArray(importedEvents)) throw new Error("Invalid format");
 
-                            const choice = confirm("You are about to import events into the database.\n\nClick OK to ADD these events to the database.\nClick Cancel to abort.");
+                            // CHANGED: Message now accurately reflects "Update/Add" behavior
+                            const choice = confirm(`Found ${importedEvents.length} events in file.\n\nClick OK to MERGE these events.\n(Existing events will be updated; new ones will be added).`);
 
                             if (choice) {
                                 this.setLoading(true);
                                 
                                 const dbRows = importedEvents.map(evt => ({
+                                    id: evt.id, // <--- CRITICAL: We now include the ID so Supabase knows what to update
                                     game: evt.game,
                                     title: evt.title,
                                     start_date: evt.startDate || evt.start_date,
@@ -964,13 +966,14 @@
                                     skipped_dates: evt.skippedDates || evt.skipped_dates || []
                                 }));
 
+                                // CHANGED: .insert() became .upsert()
                                 const { error } = await supabaseClient
                                     .from('events')
-                                    .insert(dbRows);
+                                    .upsert(dbRows); 
 
                                 if (error) throw error;
                                 
-                                this.showToast(`Successfully imported ${dbRows.length} events.`);
+                                this.showToast(`Successfully processed ${dbRows.length} events.`);
                                 this.loadEvents();
                             }
                         } catch (error) {
